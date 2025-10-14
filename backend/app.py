@@ -9,7 +9,7 @@ import json
 app = Flask(__name__)
 CORS(app)  # Защита CORS
 
-# Защита от XSS
+# Защита от XSS инъекций
 def safe_html(text):
     """Экранирование HTML символов"""
     if not text:

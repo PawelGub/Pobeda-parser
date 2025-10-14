@@ -43,7 +43,7 @@ def monitor_job():
                         processed_routes, total_flights, "running", current_route
                     )
 
-                    # Парсим маршрут
+                    # Парсим маршрут.
                     parser = PobedaParser(headless=True)
                     flights = parser.search_multiple_dates(departure, arrival, days=7)
                     parser.close()

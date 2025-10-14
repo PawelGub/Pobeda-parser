@@ -177,6 +177,7 @@ class FlightDatabase:
 
         return flights
 
+
     def get_total_flights_count(self):
         """Получает общее количество рейсов в БД"""
         conn = sqlite3.connect(self.db_path)

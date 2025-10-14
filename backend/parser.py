@@ -125,7 +125,7 @@ class PobedaParser:
             )
             time.sleep(0.5)
 
-            # Получаем русское название месяца
+            # Получаем русское название месяца.
             english_month = target_date.strftime("%B").lower()
             russian_month = month_translation.get(english_month, english_month)
             target_month_year = f"{russian_month} {target_date.year}".lower()
