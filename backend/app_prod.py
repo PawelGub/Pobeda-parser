@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Только API эндпоинты без парсинга
+# Только API эндпоинты без парсинга.
 @app.route('/')
 def home():
     return "Pobeda Tracker Interface - Use local parser for data"
