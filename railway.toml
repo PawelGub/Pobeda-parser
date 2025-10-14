@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = ""
+
+[services]
+[[services]]
+name = "web"
+[[services.ports]]
+port = 5000
+
+[[services]]
+name = "worker" 
+[[services.ports]]
+port = 5001
