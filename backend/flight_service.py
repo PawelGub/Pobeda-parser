@@ -49,7 +49,7 @@ class FlightService:
             current_date += timedelta(days=1)
         return dates
 
-    async def search_flights_month(self, origin: str, destination: str, promo_code: str = None) -> Dict:
+    async def search_flights_month(self, origin: str, destination: str, promo_code: Optional[str] = None) -> Dict:
         """Поиск рейсов на месяц вперед с информацией о полноте"""
         dates = self._generate_month_dates()
         total_days = len(dates)
@@ -84,7 +84,7 @@ class FlightService:
             valid_fresh_results = [r for r in fresh_results if r and (r.get("flights") or r.get("prices"))]
 
             # Ищем даты с 403 ошибками
-            failed_dates = []
+            failed_dates: List[Dict] = []
             for i, result in enumerate(fresh_results):
                 if result is None:  # 403 ошибка
                     failed_dates.append(uncached_dates[i])
@@ -276,7 +276,14 @@ class FlightService:
                     return await self._search_single_flight(session, origin, destination, date_info["api"], promo_code)
 
             tasks = [bounded_search(date_info) for date_info in dates]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = []
+            for task in asyncio.as_completed(tasks):
+                try:
+                    result = await task
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Task failed: {e}")
+                    results.append(None)
 
             successful_results = []
             for result in results:
