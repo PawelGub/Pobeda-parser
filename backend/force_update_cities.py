@@ -2,10 +2,12 @@
 import asyncio
 import sys
 import os
-sys.path.append('/app')
+
+sys.path.append("/app")
 
 from database import SessionLocal
 from city_service import CityService
+
 
 async def force_update_cities():
     """Принудительное обновление городов при запуске контейнера"""
@@ -27,6 +29,7 @@ async def force_update_cities():
         raise
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     asyncio.run(force_update_cities())

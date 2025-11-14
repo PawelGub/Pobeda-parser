@@ -6,6 +6,7 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
+
 class PobedaAPIClient:
     def __init__(self):
         self.base_url = "https://ticket.flypobeda.ru/websky/json"
@@ -23,14 +24,18 @@ class PobedaAPIClient:
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(url, headers=self.headers, timeout=30) as response:
+                async with session.get(
+                    url, headers=self.headers, timeout=30
+                ) as response:
                     if response.status == 200:
                         data = await response.json()
                         if isinstance(data, list):
                             logger.info(f"✅ Received {len(data)} cities from API")
                             return data
                         else:
-                            logger.error(f"❌ Unexpected API response format: {type(data)}")
+                            logger.error(
+                                f"❌ Unexpected API response format: {type(data)}"
+                            )
                             return []
                     else:
                         logger.error(f"❌ API returned status {response.status}")
@@ -46,29 +51,40 @@ class PobedaAPIClient:
             "returnPoints": "destination",
             "cityCode": origin_city_code,
             "isBooking": "true",
-            "lang": "ru"
+            "lang": "ru",
         }
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.post(url, headers=self.headers, data=data, timeout=30) as response:
+                async with session.post(
+                    url, headers=self.headers, data=data, timeout=30
+                ) as response:
                     if response.status == 200:
                         data = await response.json()
                         destinations = data.get("destination", [])
-                        logger.info(f"✅ Found {len(destinations)} destinations from {origin_city_code}")
+                        logger.info(
+                            f"✅ Found {len(destinations)} destinations from {origin_city_code}"
+                        )
                         return destinations
                     elif response.status == 403:
                         logger.warning(f"⚠️ API 403 Forbidden for {origin_city_code}")
                         return []  # Возвращаем пустой список при 403
                     else:
-                        logger.error(f"❌ API returned status {response.status} for {origin_city_code}")
+                        logger.error(
+                            f"❌ API returned status {response.status} for {origin_city_code}"
+                        )
                         return []
             except asyncio.TimeoutError:
-                logger.error(f"⏰ Timeout fetching destinations from {origin_city_code}")
+                logger.error(
+                    f"⏰ Timeout fetching destinations from {origin_city_code}"
+                )
                 return []
             except Exception as e:
-                logger.error(f"❌ Error fetching destinations from {origin_city_code}: {e}")
+                logger.error(
+                    f"❌ Error fetching destinations from {origin_city_code}: {e}"
+                )
                 return []
+
 
 class CityService:
     def __init__(self, db: Session):
@@ -92,9 +108,7 @@ class CityService:
             if not city_code:
                 continue
 
-            existing_city = self.db.query(City).filter(
-                City.code == city_code
-            ).first()
+            existing_city = self.db.query(City).filter(City.code == city_code).first()
 
             if existing_city:
                 # Обновляем существующий - НЕ меняем is_active!
@@ -112,7 +126,7 @@ class CityService:
                     name_en=city_data.get("nameEn", ""),
                     country_ru=city_data.get("countryRu", ""),
                     country_en=city_data.get("countryEn", ""),
-                    is_active=False  # ⚠️ ВАЖНО: новые города не активны по умолчанию!
+                    is_active=False,  # ⚠️ ВАЖНО: новые города не активны по умолчанию!
                 )
                 self.db.add(new_city)
                 created += 1
@@ -123,7 +137,7 @@ class CityService:
             "total_received": len(cities_data),
             "created": created,
             "updated": updated,
-            "total_in_db": self.db.query(City).count()
+            "total_in_db": self.db.query(City).count(),
         }
 
     async def get_available_destinations_from_api(self, origin_city_code: str) -> list:
@@ -137,14 +151,17 @@ class CityService:
 
             # Простая проверка - если есть хоть одно направление
             valid_destinations = [
-                dest for dest in destinations
-                if dest and dest.get('codeEn') and dest.get('codeEn') != city_code
+                dest
+                for dest in destinations
+                if dest and dest.get("codeEn") and dest.get("codeEn") != city_code
             ]
 
             has_flights = len(valid_destinations) > 0
 
             if has_flights:
-                logger.info(f"✅ City {city_code} has {len(valid_destinations)} destinations")
+                logger.info(
+                    f"✅ City {city_code} has {len(valid_destinations)} destinations"
+                )
             else:
                 logger.info(f"❌ City {city_code} has NO flights")
 
@@ -158,8 +175,26 @@ class CityService:
         """УПРОЩЕННАЯ версия - используем заранее известные активные города"""
         # Основные российские аэропорты, откуда точно есть рейсы Победы
         main_active_cities = [
-            'MOW', 'LED', 'SVX', 'KZN', 'AER', 'OVB', 'UFA', 'KRR', 'ROV', 'MRV',
-            'GOJ', 'VKO', 'STW', 'KGD', 'OMS', 'CEK', 'KUF', 'NUX', 'IJK', 'NNM'
+            "MOW",
+            "LED",
+            "SVX",
+            "KZN",
+            "AER",
+            "OVB",
+            "UFA",
+            "KRR",
+            "ROV",
+            "MRV",
+            "GOJ",
+            "VKO",
+            "STW",
+            "KGD",
+            "OMS",
+            "CEK",
+            "KUF",
+            "NUX",
+            "IJK",
+            "NNM",
         ]
 
         logger.info(f"🔄 Using predefined {len(main_active_cities)} active cities")
@@ -174,8 +209,26 @@ class CityService:
         """Основной метод: находим все активные города через доступные направления"""
         # Основные российские аэропорты для старта
         main_active_cities = [
-            'MOW', 'LED', 'SVX', 'KZN', 'AER', 'OVB', 'UFA', 'KRR', 'ROV', 'MRV',
-            'GOJ', 'VKO', 'STW', 'KGD', 'OMS', 'CEK', 'KUF', 'NUX', 'IJK', 'NNM'
+            "MOW",
+            "LED",
+            "SVX",
+            "KZN",
+            "AER",
+            "OVB",
+            "UFA",
+            "KRR",
+            "ROV",
+            "MRV",
+            "GOJ",
+            "VKO",
+            "STW",
+            "KGD",
+            "OMS",
+            "CEK",
+            "KUF",
+            "NUX",
+            "IJK",
+            "NNM",
         ]
 
         active_cities_set = set()
@@ -183,17 +236,21 @@ class CityService:
         # Проверяем каждый основной город и находим все доступные направления
         for origin_city in main_active_cities:
             try:
-                destinations = await self.api_client.get_available_destinations(origin_city)
+                destinations = await self.api_client.get_available_destinations(
+                    origin_city
+                )
 
                 # Добавляем город отправления (он активный)
                 active_cities_set.add(origin_city)
 
                 # Добавляем все города назначения
                 for dest in destinations:
-                    if dest.get('codeEn'):
-                        active_cities_set.add(dest['codeEn'])
+                    if dest.get("codeEn"):
+                        active_cities_set.add(dest["codeEn"])
 
-                logger.info(f"✅ Processed {origin_city}, found {len(destinations)} destinations")
+                logger.info(
+                    f"✅ Processed {origin_city}, found {len(destinations)} destinations"
+                )
                 await asyncio.sleep(1)  # Пауза между запросами
 
             except Exception as e:
@@ -230,7 +287,7 @@ class CityService:
                         name_en=code,
                         country_ru="Россия",
                         country_en="Russia",
-                        is_active=True
+                        is_active=True,
                     )
                     self.db.add(new_city)
                     activated_count += 1
@@ -274,16 +331,23 @@ class CityService:
         """Получить города в формате для фронтенда"""
         from models import City
 
-        cities = self.db.query(City).filter(City.is_active == True).order_by(City.name_ru).all()
+        cities = (
+            self.db.query(City)
+            .filter(City.is_active == True)
+            .order_by(City.name_ru)
+            .all()
+        )
 
         result = []
         for city in cities:
-            result.append({
-                "value": city.code,
-                "label": f"{city.name_ru} ({city.code})",
-                "name_ru": city.name_ru,
-                "name_en": city.name_en,
-                "country_ru": city.country_ru
-            })
+            result.append(
+                {
+                    "value": city.code,
+                    "label": f"{city.name_ru} ({city.code})",
+                    "name_ru": city.name_ru,
+                    "name_en": city.name_en,
+                    "country_ru": city.country_ru,
+                }
+            )
 
         return result

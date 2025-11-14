@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from database import Base
 
+
 class City(Base):
     __tablename__ = "cities"
 
@@ -16,7 +17,10 @@ class City(Base):
     country_en = Column(String(50))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
 
 class FlightCache(Base):
     __tablename__ = "flight_cache"
@@ -32,5 +36,6 @@ class FlightCache(Base):
     min_price = Column(DECIMAL(10, 2), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 # Убери остальные модели пока

@@ -3,6 +3,7 @@ import asyncio
 from database import SessionLocal
 from city_service import CityService
 
+
 async def quick_fix():
     db = SessionLocal()
     city_service = CityService(db)
@@ -24,6 +25,7 @@ async def quick_fix():
     print("✅ Active cities saved to database")
 
     db.close()
+
 
 if __name__ == "__main__":
     asyncio.run(quick_fix())

@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 from uuid import UUID
 
+
 # Схемы для городов
 class CityBase(BaseModel):
     code: str
@@ -11,8 +12,10 @@ class CityBase(BaseModel):
     country_ru: Optional[str] = None
     country_en: Optional[str] = None
 
+
 class CityCreate(CityBase):
     pass
+
 
 class City(CityBase):
     id: UUID
@@ -23,6 +26,7 @@ class City(CityBase):
     class Config:
         from_attributes = True
 
+
 # Схемы для рейсов (пока заглушки)
 class FlightBase(BaseModel):
     origin: str
@@ -31,12 +35,14 @@ class FlightBase(BaseModel):
     price: float
     currency: str = "RUB"
 
+
 class Flight(FlightBase):
     id: UUID
     created_at: datetime
 
     class Config:
         from_attributes = True
+
 
 # Схема для ответа API поиска рейсов
 class FlightSearchResponse(BaseModel):
@@ -46,6 +52,7 @@ class FlightSearchResponse(BaseModel):
     flights: list
     min_price: Optional[float] = None
     currency: str = "RUB"
+
 
 # Схема для поиска "Куда угодно"
 class AnywhereSearchResponse(BaseModel):
