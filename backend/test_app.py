@@ -1,11 +1,10 @@
-from fastapi import FastAPI, Depends
+import aiohttp
+import uvicorn
+from config import settings
+from database import create_tables, get_db
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-import uvicorn
-import aiohttp
-
-from database import get_db, create_tables
-from config import settings
 
 app = FastAPI(
     title="Pobeda Parser API",

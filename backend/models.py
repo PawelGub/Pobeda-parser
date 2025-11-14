@@ -1,9 +1,10 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Date, JSON, DECIMAL
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func
 import uuid
 from datetime import datetime
+
 from database import Base
+from sqlalchemy import DECIMAL, JSON, Boolean, Column, Date, DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.sql import func
 
 
 class City(Base):

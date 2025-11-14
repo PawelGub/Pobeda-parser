@@ -2,9 +2,10 @@
 import asyncio
 import logging
 from datetime import datetime
-from sqlalchemy.orm import Session
+
 from city_service import CityService
 from flight_service import FlightService
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

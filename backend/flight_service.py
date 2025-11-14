@@ -1,10 +1,11 @@
 import asyncio
-import aiohttp
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-from sqlalchemy.orm import Session
 import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+import aiohttp
 from models import FlightCache
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

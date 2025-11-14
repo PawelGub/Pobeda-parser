@@ -1,25 +1,25 @@
-from typing import List, Dict
-from contextlib import asynccontextmanager
-from datetime import datetime
-
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-import uvicorn
 import asyncio
-import logging
-import redis
-from kafka import KafkaProducer, KafkaConsumer
 import json
-import time
+import logging
 import subprocess
 import threading
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List
+
+import redis
+import uvicorn
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from flight_service import FlightService
+from kafka import KafkaConsumer, KafkaProducer
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-from database import get_db, create_tables
 from config import settings
+from database import create_tables, get_db
 
 # Глобальные клиенты (инициализируются в lifespan)
 redis_client = None
@@ -139,8 +139,8 @@ async def background_price_updater():
     """Фоновая задача для обновления цен"""
     while True:
         try:
-            from database import SessionLocal
             from background_service import BackgroundPriceUpdater
+            from database import SessionLocal
 
             db = SessionLocal()
             updater = BackgroundPriceUpdater(db)
@@ -178,8 +178,8 @@ async def background_cities_updater():
     """Фоновая задача для обновления активных городов"""
     while True:
         try:
-            from database import SessionLocal
             from city_service import CityService
+            from database import SessionLocal
 
             db = SessionLocal()
             city_service = CityService(db)
@@ -505,8 +505,8 @@ async def search_flights(
     db: Session = Depends(get_db),
 ):
     """Поиск рейсов между городами на месяц вперед"""
-    from models import City
     from flight_service import FlightService
+    from models import City
 
     # Проверяем что города активные
     origin_city = db.query(City).filter(City.code == origin, City.is_active == True).first()

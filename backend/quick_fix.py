@@ -1,7 +1,8 @@
 # quick_fix.py
 import asyncio
-from database import SessionLocal
+
 from city_service import CityService
+from database import SessionLocal
 
 
 async def quick_fix():

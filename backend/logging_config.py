@@ -1,7 +1,8 @@
 # logging_config.py
+import json
 import logging
 import logging.config
-import json
+
 from pythonjsonlogger import jsonlogger
 
 

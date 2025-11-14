@@ -1,12 +1,12 @@
 # force_update_cities.py
 import asyncio
-import sys
 import os
+import sys
 
 sys.path.append("/app")
 
-from database import SessionLocal
 from city_service import CityService
+from database import SessionLocal
 
 
 async def force_update_cities():
