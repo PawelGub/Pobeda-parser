@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import aiohttp
+import random
 from models import FlightCache
 from sqlalchemy.orm import Session
 
