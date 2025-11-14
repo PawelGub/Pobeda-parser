@@ -79,9 +79,7 @@ async def init_redis():
     max_retries = 5
     for i in range(max_retries):
         try:
-            redis_client = redis.Redis(
-                host="redis", port=6379, decode_responses=True, socket_connect_timeout=5
-            )
+            redis_client = redis.Redis(host="redis", port=6379, decode_responses=True, socket_connect_timeout=5)
             redis_client.ping()
             logger.info("✅ Redis connected successfully")
             return True
@@ -101,9 +99,7 @@ async def init_kafka():
     for i in range(max_retries):
         try:
             kafka_producer = KafkaProducer(
-                bootstrap_servers=[
-                    "localhost:9092"
-                ],  # ← ИЗМЕНИТЬ С 'kafka:9092' на 'localhost:9092'
+                bootstrap_servers=["localhost:9092"],  # ← ИЗМЕНИТЬ С 'kafka:9092' на 'localhost:9092'
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 retries=3,
                 request_timeout_ms=10000,
@@ -130,9 +126,7 @@ def send_kafka_event(topic: str, event_data: dict):
             event_data["timestamp"] = datetime.utcnow().isoformat()
             event_data["service"] = "pobeda-backend"
             kafka_producer.send(topic, event_data)
-            logger.info(
-                f"📨 Sent event to {topic}: {event_data.get('event_type', 'unknown')}"
-            )
+            logger.info(f"📨 Sent event to {topic}: {event_data.get('event_type', 'unknown')}")
         except Exception as e:
             logger.error(f"Failed to send Kafka event to {topic}: {e}")
 
@@ -163,9 +157,7 @@ async def background_price_updater():
                 },
             )
 
-            logger.info(
-                f"✅ Background update finished: {updated_count} routes updated"
-            )
+            logger.info(f"✅ Background update finished: {updated_count} routes updated")
             db.close()
 
         except Exception as e:
@@ -203,9 +195,7 @@ async def background_cities_updater():
                 },
             )
 
-            logger.info(
-                f"✅ Background cities update finished: {updated_count} active cities"
-            )
+            logger.info(f"✅ Background cities update finished: {updated_count} active cities")
             db.close()
 
         except Exception as e:
@@ -356,9 +346,7 @@ async def test_redis():
             "data": {"key": test_key, "value": value},
         }
     except Exception as e:
-        send_kafka_event(
-            "error-logs", {"event_type": "redis_test_error", "error": str(e)}
-        )
+        send_kafka_event("error-logs", {"event_type": "redis_test_error", "error": str(e)})
         raise HTTPException(status_code=500, detail=f"Redis test failed: {e}")
 
 
@@ -405,9 +393,7 @@ async def cache_test():
 
         return {"redis": value, "kafka": "event_sent", "status": "success"}
     except Exception as e:
-        send_kafka_event(
-            "error-logs", {"event_type": "cache_test_error", "error": str(e)}
-        )
+        send_kafka_event("error-logs", {"event_type": "cache_test_error", "error": str(e)})
         raise HTTPException(status_code=500, detail=f"Cache test failed: {e}")
 
 
@@ -434,9 +420,7 @@ async def receive_frontend_logs(log_data: dict, db: Session = Depends(get_db)):
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error processing frontend log: {e}")
-        send_kafka_event(
-            "error-logs", {"event_type": "log_processing_error", "error": str(e)}
-        )
+        send_kafka_event("error-logs", {"event_type": "log_processing_error", "error": str(e)})
         return {"status": "error", "message": str(e)}
 
 
@@ -489,9 +473,7 @@ async def get_active_cities(
     """Получить список только АКТИВНЫХ городов (откуда есть рейсы)"""
     from models import City
 
-    cities = (
-        db.query(City).filter(City.is_active == True).offset(skip).limit(limit).all()
-    )
+    cities = db.query(City).filter(City.is_active == True).offset(skip).limit(limit).all()
 
     send_kafka_event(
         "api-requests",
@@ -518,9 +500,7 @@ async def search_flights(
         ...,
         description="Код города отправления из активных городов, (например: MOW, LED, AER)",
     ),
-    destination: str = Query(
-        ..., description="Код города назначения из активных городов"
-    ),
+    destination: str = Query(..., description="Код города назначения из активных городов"),
     promo_code: str = Query(None, description="Промокод для поиска (опционально)"),
     db: Session = Depends(get_db),
 ):
@@ -529,12 +509,8 @@ async def search_flights(
     from flight_service import FlightService
 
     # Проверяем что города активные
-    origin_city = (
-        db.query(City).filter(City.code == origin, City.is_active == True).first()
-    )
-    destination_city = (
-        db.query(City).filter(City.code == destination, City.is_active == True).first()
-    )
+    origin_city = db.query(City).filter(City.code == origin, City.is_active == True).first()
+    destination_city = db.query(City).filter(City.code == destination, City.is_active == True).first()
 
     if not origin_city:
         raise HTTPException(
@@ -559,9 +535,7 @@ async def search_flights(
     )
 
     flight_service = FlightService(db)
-    search_result = await flight_service.search_flights_month(
-        origin, destination, promo_code
-    )
+    search_result = await flight_service.search_flights_month(origin, destination, promo_code)
 
     # Отправляем событие о завершении поиска
     send_kafka_event(
@@ -598,13 +572,9 @@ async def search_anywhere(
         ...,
         description="Код города отправления (например: MOW, LED, AER). Получить коды городов: /cities/active",
     ),
-    months_ahead: int = Query(
-        1, description="На сколько месяцев вперед искать (1-6 месяцев, по умолчанию 1)"
-    ),
+    months_ahead: int = Query(1, description="На сколько месяцев вперед искать (1-6 месяцев, по умолчанию 1)"),
     promo_code: str = Query(None, description="Промокод для поиска (опционально)"),
-    max_price: float = Query(
-        None, description="Максимальная цена билета в рублях (опционально)"
-    ),
+    max_price: float = Query(None, description="Максимальная цена билета в рублях (опционально)"),
     db: Session = Depends(get_db),
 ):
     """Поиск самых дешевых рейсов из города в любые доступные направления"""
@@ -612,9 +582,7 @@ async def search_anywhere(
 
     # Валидация параметров
     if months_ahead < 1 or months_ahead > 6:
-        raise HTTPException(
-            status_code=400, detail="months_ahead должен быть от 1 до 6"
-        )
+        raise HTTPException(status_code=400, detail="months_ahead должен быть от 1 до 6")
 
     # Отправляем событие о начале поиска "Куда угодно"
     send_kafka_event(
@@ -628,9 +596,7 @@ async def search_anywhere(
     )
 
     anywhere_service = AnywhereService(db)
-    results = await anywhere_service.search_anywhere(
-        origin, months_ahead, promo_code, max_price
-    )
+    results = await anywhere_service.search_anywhere(origin, months_ahead, promo_code, max_price)
 
     # Отправляем событие о завершении поиска
     send_kafka_event(

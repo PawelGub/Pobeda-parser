@@ -38,23 +38,17 @@ class BackgroundPriceUpdater:
 
             for origin in popular_origins:
                 # Получаем доступные направления из каждого популярного города
-                destinations = (
-                    await self.city_service.get_available_destinations_from_api(origin)
-                )
+                destinations = await self.city_service.get_available_destinations_from_api(origin)
                 if not destinations:
                     continue
 
                 # Берем первые 5 направлений из каждого города
-                destination_codes = [
-                    dest["codeEn"] for dest in destinations[:5] if dest.get("codeEn")
-                ]
+                destination_codes = [dest["codeEn"] for dest in destinations[:5] if dest.get("codeEn")]
 
                 for destination in destination_codes:
                     try:
                         # Обновляем цены на 1 месяц вперед
-                        await self.flight_service.search_flights_period(
-                            origin, destination, months_ahead=1
-                        )
+                        await self.flight_service.search_flights_period(origin, destination, months_ahead=1)
                         updated_routes += 1
                         logger.info(f"Updated prices for {origin} -> {destination}")
 

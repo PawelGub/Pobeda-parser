@@ -24,9 +24,7 @@ class AnywhereService:
         """ПОИСК КУДА УГОДНО - ПОЛНАЯ МОЩЬ БЕЗ КОМПРОМИССОВ"""
         from city_service import CityService
 
-        logger.info(
-            f"🚀 ЗАПУСК ПОЛНОГО ПОИСКА КУДА УГОДНО: {origin}, {months_ahead} месяцев"
-        )
+        logger.info(f"🚀 ЗАПУСК ПОЛНОГО ПОИСКА КУДА УГОДНО: {origin}, {months_ahead} месяцев")
 
         # 1. Проверяем что город активный
         city_service = CityService(self.db)
@@ -36,9 +34,7 @@ class AnywhereService:
             return [{"error": f"Из города {origin} нет рейсов Победы"}]
 
         # 2. Получаем ВСЕ доступные направления
-        available_destinations = await city_service.get_available_destinations_from_api(
-            origin
-        )
+        available_destinations = await city_service.get_available_destinations_from_api(origin)
 
         if not available_destinations:
             return [{"error": f"Нет доступных направлений из города {origin}"}]
@@ -46,13 +42,9 @@ class AnywhereService:
         logger.info(f"🎯 Найдено {len(available_destinations)} направлений из {origin}")
 
         # 3. Берем ВСЕ направления без исключений
-        destination_codes = [
-            dest["codeEn"] for dest in available_destinations if dest.get("codeEn")
-        ]
+        destination_codes = [dest["codeEn"] for dest in available_destinations if dest.get("codeEn")]
 
-        logger.info(
-            f"🔥 Запускаем поиск по ВСЕМ {len(destination_codes)} направлениям на {months_ahead} месяцев"
-        )
+        logger.info(f"🔥 Запускаем поиск по ВСЕМ {len(destination_codes)} направлениям на {months_ahead} месяцев")
 
         # 4. Полномасштабный поиск по ВСЕМ направлениям
         all_cheapest_flights = []
@@ -68,20 +60,13 @@ class AnywhereService:
             )
             processed += 1
             if processed % 5 == 0:  # Логируем каждые 5 направлений
-                logger.info(
-                    f"📊 Прогресс: {processed}/{total_destinations} ({processed/total_destinations*100:.1f}%)"
-                )
+                logger.info(f"📊 Прогресс: {processed}/{total_destinations} ({processed/total_destinations*100:.1f}%)")
             return result
 
         # Запускаем ВСЕ задачи одновременно - пользователь ждет и получает ВСЕ!
-        tasks = [
-            process_destination_with_progress(destination)
-            for destination in destination_codes
-        ]
+        tasks = [process_destination_with_progress(destination) for destination in destination_codes]
 
-        logger.info(
-            "⏳ Начинаем полномасштабный поиск... Это может занять несколько минут"
-        )
+        logger.info("⏳ Начинаем полномасштабный поиск... Это может занять несколько минут")
 
         # Ждем завершения ВСЕХ задач - никаких ограничений!
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -96,9 +81,7 @@ class AnywhereService:
         # Сортируем по цене
         all_cheapest_flights.sort(key=lambda x: x.get("min_price", float("inf")))
 
-        logger.info(
-            f"✅ ПОИСК ЗАВЕРШЕН! Найдено {len(all_cheapest_flights)} направлений с ценами"
-        )
+        logger.info(f"✅ ПОИСК ЗАВЕРШЕН! Найдено {len(all_cheapest_flights)} направлений с ценами")
         return all_cheapest_flights
 
     async def _find_cheapest_flight_full_power(
@@ -155,12 +138,8 @@ class AnywhereService:
                 "destination": destination,
                 "destination_name_ru": dest_city.name_ru if dest_city else destination,
                 "destination_name_en": dest_city.name_en if dest_city else destination,
-                "destination_country_ru": (
-                    dest_city.country_ru if dest_city else None
-                ),  # ДОБАВЛЯЕМ СТРАНУ
-                "destination_country_en": (
-                    dest_city.country_en if dest_city else None
-                ),  # ДОБАВЛЯЕМ СТРАНУ
+                "destination_country_ru": (dest_city.country_ru if dest_city else None),  # ДОБАВЛЯЕМ СТРАНУ
+                "destination_country_en": (dest_city.country_en if dest_city else None),  # ДОБАВЛЯЕМ СТРАНУ
                 "min_price": min_price,
                 "cheapest_date": cheapest_date,
                 "currency": "RUB",

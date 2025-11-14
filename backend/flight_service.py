@@ -47,21 +47,15 @@ class FlightService:
             current_date += timedelta(days=1)
         return dates
 
-    async def search_flights_month(
-        self, origin: str, destination: str, promo_code: str = None
-    ) -> Dict:
+    async def search_flights_month(self, origin: str, destination: str, promo_code: str = None) -> Dict:
         """Поиск рейсов на месяц вперед с информацией о полноте"""
         dates = self._generate_month_dates()
         total_days = len(dates)
-        logger.info(
-            f"Searching flights {origin} -> {destination} for {total_days} dates"
-        )
+        logger.info(f"Searching flights {origin} -> {destination} for {total_days} dates")
 
         # Сначала проверяем кеш
         date_strings = [date_info["db"] for date_info in dates]
-        cached_data = self._get_cached_flights_batch(
-            origin, destination, date_strings, promo_code
-        )
+        cached_data = self._get_cached_flights_batch(origin, destination, date_strings, promo_code)
 
         cached_results = []
         uncached_dates = []
@@ -74,9 +68,7 @@ class FlightService:
             else:
                 uncached_dates.append(date_info)
 
-        logger.info(
-            f"Found {len(cached_results)} cached with flights, {len(uncached_dates)} to fetch"
-        )
+        logger.info(f"Found {len(cached_results)} cached with flights, {len(uncached_dates)} to fetch")
 
         fresh_results = []
         retry_results = []
@@ -84,14 +76,10 @@ class FlightService:
 
         if uncached_dates:
             # Первый проход
-            fresh_results = await self._search_flights_parallel(
-                origin, destination, uncached_dates, promo_code
-            )
+            fresh_results = await self._search_flights_parallel(origin, destination, uncached_dates, promo_code)
 
             # Фильтруем успешные результаты
-            valid_fresh_results = [
-                r for r in fresh_results if r and (r.get("flights") or r.get("prices"))
-            ]
+            valid_fresh_results = [r for r in fresh_results if r and (r.get("flights") or r.get("prices"))]
 
             # Ищем даты с 403 ошибками
             failed_dates = []
@@ -102,28 +90,18 @@ class FlightService:
 
             # Сохраняем в кеш успешные результаты
             if valid_fresh_results:
-                self._cache_flights_batch(
-                    origin, destination, valid_fresh_results, promo_code
-                )
+                self._cache_flights_batch(origin, destination, valid_fresh_results, promo_code)
 
             # Второй проход для 403 ошибок
             if failed_dates:
                 logger.info(f"Background retry for {len(failed_dates)} failed dates...")
-                retry_results = await self._search_flights_slow_retry(
-                    origin, destination, failed_dates, promo_code
-                )
+                retry_results = await self._search_flights_slow_retry(origin, destination, failed_dates, promo_code)
 
                 # Фильтруем успешные повторные попытки
-                valid_retry_results = [
-                    r
-                    for r in retry_results
-                    if r and (r.get("flights") or r.get("prices"))
-                ]
+                valid_retry_results = [r for r in retry_results if r and (r.get("flights") or r.get("prices"))]
 
                 if valid_retry_results:
-                    self._cache_flights_batch(
-                        origin, destination, valid_retry_results, promo_code
-                    )
+                    self._cache_flights_batch(origin, destination, valid_retry_results, promo_code)
                     valid_fresh_results.extend(valid_retry_results)
 
                 # Если после повторной попытки остались ошибки - данные не полные
@@ -135,9 +113,7 @@ class FlightService:
 
         # ДЕБАГ
         days_with_data = len(all_results)
-        logger.info(
-            f"FINAL: {days_with_data}/{total_days} days with data, complete: {is_complete}"
-        )
+        logger.info(f"FINAL: {days_with_data}/{total_days} days with data, complete: {is_complete}")
 
         return {
             "flights": all_results,
@@ -164,19 +140,13 @@ class FlightService:
                     )
                     if result and (result.get("flights") or result.get("prices")):
                         results.append(result)
-                        logger.info(
-                            f"✅ Retry SUCCESS for {origin}-{destination} on {date_info['api']}"
-                        )
+                        logger.info(f"✅ Retry SUCCESS for {origin}-{destination} on {date_info['api']}")
                     else:
                         # Не добавляем пустые результаты
-                        logger.info(
-                            f"⏩ Retry SKIP for {origin}-{destination} on {date_info['api']} (no flights)"
-                        )
+                        logger.info(f"⏩ Retry SKIP for {origin}-{destination} on {date_info['api']} (no flights)")
 
                 except Exception as e:
-                    logger.error(
-                        f"❌ Retry error for {origin}-{destination} on {date_info['api']}: {e}"
-                    )
+                    logger.error(f"❌ Retry error for {origin}-{destination} on {date_info['api']}: {e}")
 
             return results
 
@@ -189,15 +159,11 @@ class FlightService:
     ) -> List[Dict]:
         """Поиск рейсов на указанный период вперед - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ"""
         dates = self._generate_dates(months_ahead)
-        logger.info(
-            f"Searching flights {origin} -> {destination} for {len(dates)} days ({months_ahead} months)"
-        )
+        logger.info(f"Searching flights {origin} -> {destination} for {len(dates)} days ({months_ahead} months)")
 
         # ПАКЕТНАЯ проверка кеша
         date_strings = [date_info["db"] for date_info in dates]
-        cached_data = self._get_cached_flights_batch(
-            origin, destination, date_strings, promo_code
-        )
+        cached_data = self._get_cached_flights_batch(origin, destination, date_strings, promo_code)
 
         cached_results = []
         uncached_dates = []
@@ -208,14 +174,10 @@ class FlightService:
             else:
                 uncached_dates.append(date_info)
 
-        logger.info(
-            f"Found {len(cached_results)} cached, {len(uncached_dates)} to fetch"
-        )
+        logger.info(f"Found {len(cached_results)} cached, {len(uncached_dates)} to fetch")
 
         if uncached_dates:
-            fresh_results = await self._search_flights_parallel(
-                origin, destination, uncached_dates, promo_code
-            )
+            fresh_results = await self._search_flights_parallel(origin, destination, uncached_dates, promo_code)
             self._cache_flights_batch(origin, destination, fresh_results, promo_code)
             return cached_results + fresh_results
 
@@ -250,17 +212,13 @@ class FlightService:
 
         return cached_data
 
-    def _cache_flights_batch(
-        self, origin: str, destination: str, fresh_results: List[Dict], promo_code: str
-    ):
+    def _cache_flights_batch(self, origin: str, destination: str, fresh_results: List[Dict], promo_code: str):
         """Пакетное сохранение в кеш"""
         for result in fresh_results:
             if result and "flights" in result:
                 try:
                     api_date = result["date"]
-                    db_date = datetime.strptime(api_date, "%d.%m.%Y").strftime(
-                        "%Y-%m-%d"
-                    )
+                    db_date = datetime.strptime(api_date, "%d.%m.%Y").strftime("%Y-%m-%d")
                     self._cache_flight(origin, destination, db_date, promo_code, result)
                 except ValueError as e:
                     logger.error(f"Error converting date {result['date']}: {e}")
@@ -313,9 +271,7 @@ class FlightService:
 
             async def bounded_search(date_info):
                 async with semaphore:
-                    return await self._search_single_flight(
-                        session, origin, destination, date_info["api"], promo_code
-                    )
+                    return await self._search_single_flight(session, origin, destination, date_info["api"], promo_code)
 
             tasks = [bounded_search(date_info) for date_info in dates]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -369,14 +325,10 @@ class FlightService:
                         "promo_code": promo_code,
                     }
                 else:
-                    logger.warning(
-                        f"API returned {response.status} for {origin}-{destination} on {date}"
-                    )
+                    logger.warning(f"API returned {response.status} for {origin}-{destination} on {date}")
                     return None
         except Exception as e:
-            logger.error(
-                f"Error searching flight {origin}-{destination} on {date}: {e}"
-            )
+            logger.error(f"Error searching flight {origin}-{destination} on {date}: {e}")
             return None
 
     async def search_flights_specific_date(
@@ -392,6 +344,4 @@ class FlightService:
             api_date = date
 
         async with aiohttp.ClientSession() as session:
-            return await self._search_single_flight(
-                session, origin, destination, api_date, promo_code
-            )
+            return await self._search_single_flight(session, origin, destination, api_date, promo_code)

@@ -24,18 +24,14 @@ class PobedaAPIClient:
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(
-                    url, headers=self.headers, timeout=30
-                ) as response:
+                async with session.get(url, headers=self.headers, timeout=30) as response:
                     if response.status == 200:
                         data = await response.json()
                         if isinstance(data, list):
                             logger.info(f"✅ Received {len(data)} cities from API")
                             return data
                         else:
-                            logger.error(
-                                f"❌ Unexpected API response format: {type(data)}"
-                            )
+                            logger.error(f"❌ Unexpected API response format: {type(data)}")
                             return []
                     else:
                         logger.error(f"❌ API returned status {response.status}")
@@ -56,33 +52,23 @@ class PobedaAPIClient:
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.post(
-                    url, headers=self.headers, data=data, timeout=30
-                ) as response:
+                async with session.post(url, headers=self.headers, data=data, timeout=30) as response:
                     if response.status == 200:
                         data = await response.json()
                         destinations = data.get("destination", [])
-                        logger.info(
-                            f"✅ Found {len(destinations)} destinations from {origin_city_code}"
-                        )
+                        logger.info(f"✅ Found {len(destinations)} destinations from {origin_city_code}")
                         return destinations
                     elif response.status == 403:
                         logger.warning(f"⚠️ API 403 Forbidden for {origin_city_code}")
                         return []  # Возвращаем пустой список при 403
                     else:
-                        logger.error(
-                            f"❌ API returned status {response.status} for {origin_city_code}"
-                        )
+                        logger.error(f"❌ API returned status {response.status} for {origin_city_code}")
                         return []
             except asyncio.TimeoutError:
-                logger.error(
-                    f"⏰ Timeout fetching destinations from {origin_city_code}"
-                )
+                logger.error(f"⏰ Timeout fetching destinations from {origin_city_code}")
                 return []
             except Exception as e:
-                logger.error(
-                    f"❌ Error fetching destinations from {origin_city_code}: {e}"
-                )
+                logger.error(f"❌ Error fetching destinations from {origin_city_code}: {e}")
                 return []
 
 
@@ -151,17 +137,13 @@ class CityService:
 
             # Простая проверка - если есть хоть одно направление
             valid_destinations = [
-                dest
-                for dest in destinations
-                if dest and dest.get("codeEn") and dest.get("codeEn") != city_code
+                dest for dest in destinations if dest and dest.get("codeEn") and dest.get("codeEn") != city_code
             ]
 
             has_flights = len(valid_destinations) > 0
 
             if has_flights:
-                logger.info(
-                    f"✅ City {city_code} has {len(valid_destinations)} destinations"
-                )
+                logger.info(f"✅ City {city_code} has {len(valid_destinations)} destinations")
             else:
                 logger.info(f"❌ City {city_code} has NO flights")
 
@@ -236,9 +218,7 @@ class CityService:
         # Проверяем каждый основной город и находим все доступные направления
         for origin_city in main_active_cities:
             try:
-                destinations = await self.api_client.get_available_destinations(
-                    origin_city
-                )
+                destinations = await self.api_client.get_available_destinations(origin_city)
 
                 # Добавляем город отправления (он активный)
                 active_cities_set.add(origin_city)
@@ -248,9 +228,7 @@ class CityService:
                     if dest.get("codeEn"):
                         active_cities_set.add(dest["codeEn"])
 
-                logger.info(
-                    f"✅ Processed {origin_city}, found {len(destinations)} destinations"
-                )
+                logger.info(f"✅ Processed {origin_city}, found {len(destinations)} destinations")
                 await asyncio.sleep(1)  # Пауза между запросами
 
             except Exception as e:
@@ -331,12 +309,7 @@ class CityService:
         """Получить города в формате для фронтенда"""
         from models import City
 
-        cities = (
-            self.db.query(City)
-            .filter(City.is_active == True)
-            .order_by(City.name_ru)
-            .all()
-        )
+        cities = self.db.query(City).filter(City.is_active == True).order_by(City.name_ru).all()
 
         result = []
         for city in cities:
