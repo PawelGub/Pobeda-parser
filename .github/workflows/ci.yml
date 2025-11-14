@@ -57,8 +57,8 @@ jobs:
       - name: Build backend image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: ./backend/Dockerfile.backend
+          context: ./backend  # ✅ Контекст - папка backend
+          file: ./backend/Dockerfile.backend  # ✅ Полный путь к Dockerfile
           tags: pobeda-backend:latest
           load: true
           cache-from: type=gha
@@ -67,8 +67,8 @@ jobs:
       - name: Build frontend image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: ./frontend/Dockerfile
+          context: ./frontend  # ✅ Контекст - папка frontend
+          file: ./frontend/Dockerfile  # ✅ Полный путь к Dockerfile
           tags: pobeda-frontend:latest
           load: true
           cache-from: type=gha
