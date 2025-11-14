@@ -1,0 +1,36 @@
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: pobeda_postgres
+    environment:
+      POSTGRES_DB: pobeda_flights
+      POSTGRES_USER: pobeda_user
+      POSTGRES_PASSWORD: pobeda_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - pobeda_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pobeda_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pobeda.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    networks:
+      - pobeda_network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+
+networks:
+  pobeda_network:
+    driver: bridge

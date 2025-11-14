@@ -1,0 +1,183 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pobeda Parser - Найди самые дешевые авиабилеты</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-plane-departure"></i>
+                    <span>Pobeda Parser</span>
+                </div>
+                <nav class="nav">
+                    <button class="nav-btn active" data-tab="search">Поиск рейсов</button>
+                    <button class="nav-btn" data-tab="anywhere">Куда угодно</button>
+                    <button class="nav-btn" data-tab="charts">Графики цен</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <!-- Search Tab -->
+            <div class="tab-content active" id="search-tab">
+                <div class="search-hero">
+                    <h1>Найди самые дешевые авиабилеты</h1>
+                    <p>Поиск рейсов Победы на месяц вперед</p>
+                </div>
+
+                <div class="search-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="origin"><i class="fas fa-plane-departure"></i> Откуда</label>
+                            <select id="origin" class="city-select">
+                                <option value="">Выберите город</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="destination"><i class="fas fa-plane-arrival"></i> Куда</label>
+                            <select id="destination" class="city-select">
+                                <option value="">Выберите город</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="promo-code"><i class="fas fa-tag"></i> Промокод</label>
+                            <input type="text" id="promo-code" placeholder="Необязательно">
+                        </div>
+
+                        <button id="search-btn" class="search-button">
+                            <i class="fas fa-search"></i>
+                            Найти рейсы
+                        </button>
+                    </div>
+                </div>
+
+                <div id="search-results" class="results-container" style="display: none;">
+                    <h2>Результаты поиска</h2>
+                    <div id="search-loading" class="loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Ищем лучшие цены...</p>
+                    </div>
+                    <div id="search-flights" class="flights-list"></div>
+                </div>
+            </div>
+
+            <!-- Anywhere Tab -->
+            <div class="tab-content" id="anywhere-tab">
+                <div class="search-hero">
+                    <h1>Куда угодно из выбранного города</h1>
+                    <p>Найди самые дешевые направления</p>
+                </div>
+
+                <div class="search-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="anywhere-origin"><i class="fas fa-plane-departure"></i> Откуда</label>
+                            <select id="anywhere-origin" class="city-select">
+                                <option value="">Выберите город</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="anywhere-months"><i class="fas fa-calendar-alt"></i> Период</label>
+                            <select id="anywhere-months">
+                                <option value="1">1 месяц</option>
+                                <option value="2">2 месяца</option>
+                                <option value="3" selected>3 месяца</option>
+                                <option value="6">6 месяцев</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="anywhere-promo"><i class="fas fa-tag"></i> Промокод</label>
+                            <input type="text" id="anywhere-promo" placeholder="Необязательно">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="max-price"><i class="fas fa-ruble-sign"></i> Макс. цена</label>
+                            <input type="number" id="max-price" placeholder="Любая цена">
+                        </div>
+                    </div>
+
+                    <button id="anywhere-btn" class="search-button">
+                        <i class="fas fa-globe-europe"></i>
+                        Найти направления
+                    </button>
+                </div>
+
+                <div id="anywhere-results" class="results-container" style="display: none;">
+                    <h2>Самые дешевые направления</h2>
+                    <div id="anywhere-loading" class="loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Ищем лучшие направления...</p>
+                    </div>
+                    <div id="anywhere-flights" class="destinations-grid"></div>
+                </div>
+            </div>
+
+            <!-- Charts Tab -->
+            <div class="tab-content" id="charts-tab">
+                <div class="search-hero">
+                    <h1>Графики цен</h1>
+                    <p>Анализ цен на популярных направлениях</p>
+                </div>
+
+                <div class="charts-controls">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="chart-origin">Откуда</label>
+                            <select id="chart-origin" class="city-select">
+                                <option value="">Выберите город</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="chart-destination">Куда</label>
+                            <select id="chart-destination" class="city-select">
+                                <option value="">Выберите город</option>
+                            </select>
+                        </div>
+
+                        <button id="chart-btn" class="search-button">
+                            <i class="fas fa-chart-line"></i>
+                            Показать график
+                        </button>
+                    </div>
+                </div>
+
+                <div id="chart-container" class="chart-container" style="display: none;">
+                    <canvas id="price-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 Pobeda Parser. Все цены от авиакомпании Победа.</p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/search.js"></script>
+    <script src="js/anywhere.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

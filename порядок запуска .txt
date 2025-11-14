@@ -1,0 +1,56 @@
+Правильный порядок запуска:
+powershell
+# 1. Удаляем всё что есть
+kubectl delete --all pods,services,deployments
+
+🔍 Проверяем что теперь:
+
+kubectl get deployments
+# Должно быть:
+	# NAME         		READY   UP-TO-DATE   AVAILABLE
+# pobeda-backend with kafka     2/2     2            2
+# postgres          		1/1     1            1
+# redis             		1/1     1            1
+
+kubectl get pods
+# Должно быть по одному поду на каждый deployment
+
+
+# 1. База данных и кеш
+kubectl apply -f k8s/postgres.yml
+kubectl apply -f k8s/redis.yml
+kubectl apply -f k8s/elasticsearch.yml
+
+# 2. Backend со ВСТРОЕННОЙ Kafka (уже включает Zookeeper)
+kubectl apply -f k8s/backend-with-kafka.yml
+
+# 3. Kafka UI (если нужен)
+kubectl apply -f k8s/kafka-ui.yml
+
+#4. FRONTEND:
+
+kubectl apply -f k8s/frontend.yml
+
+Полная инструкция по port-forward:
+1. Backend API (основной сервис)
+bash
+kubectl port-forward service/pobeda-backend-service 8000:8000
+URL: http://localhost:8000
+Docs: http://localhost:8000/docs
+
+2. Frontend (веб-интерфейс)
+bash
+kubectl port-forward service/frontend 3000:80
+URL: http://localhost:3000
+
+3. Kafka UI (мониторинг Kafka)
+bash
+kubectl port-forward service/kafka-ui 8080:8080
+URL: http://localhost:8080
+
+4. Elasticsearch (логи и поиск)
+bash
+kubectl port-forward service/elasticsearch 9200:9200
+URL: http://localhost:9200
+
+P.S. в ночь со вторника на среду сервера победы отключаются, видимо на обновления...

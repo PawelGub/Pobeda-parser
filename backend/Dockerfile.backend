@@ -1,0 +1,40 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Устанавливаем зависимости + Java для Kafka + netcat для проверки БД
+RUN apt-get update && apt-get install -y wget openjdk-21-jre-headless netcat-openbsd && \
+    rm -rf /var/lib/apt/lists/*
+
+# Копируем зависимости
+COPY requirements.txt .
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Скачиваем и устанавливаем Kafka
+RUN wget https://archive.apache.org/dist/kafka/3.7.0/kafka_2.13-3.7.0.tgz -O /tmp/kafka.tgz && \
+    tar -xzf /tmp/kafka.tgz -C /tmp/ && \
+    mv /tmp/kafka_2.13-3.7.0 /kafka && \
+    rm /tmp/kafka.tgz
+
+# Копируем код приложения
+COPY . .
+
+# Копируем скрипты инициализации
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY quick_fix.py /app/quick_fix.py
+COPY force_update_cities.py /app/force_update_cities.py
+RUN chmod +x /app/docker-entrypoint.sh
+
+# Настраиваем Kafka properties
+RUN echo "dataDir=/tmp/zookeeper\nclientPort=2181\nmaxClientCnxns=0\nadmin.enableServer=false" > /kafka/config/zookeeper.properties && \
+    echo "broker.id=1\nlisteners=PLAINTEXT://0.0.0.0:9092\nadvertised.listeners=PLAINTEXT://pobeda-backend-service:9092\nnum.network.threads=3\nnum.io.threads=8\nsocket.send.buffer.bytes=102400\nsocket.receive.buffer.bytes=102400\nsocket.request.max.bytes=104857600\nlog.dirs=/tmp/kafka-logs\nnum.partitions=1\nnum.recovery.threads.per.data.dir=1\noffsets.topic.replication.factor=1\ntransaction.state.log.replication.factor=1\ntransaction.state.log.min.isr=1\nlog.retention.hours=168\nlog.segment.bytes=1073741824\nlog.retention.check.interval.ms=300000\nzookeeper.connect=localhost:2181\nzookeeper.connection.timeout.ms=18000\ngroup.initial.rebalance.delay.ms=0" > /kafka/config/server.properties
+
+# Создаем пользователя для безопасности
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app /kafka
+USER appuser
+
+# Запускаем через entrypoint скрипт
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["python", "app.py"]

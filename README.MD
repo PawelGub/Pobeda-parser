@@ -1,29 +1,79 @@
-# 🎯 Умный трекер цен Победы
+﻿# 🚀 Pobeda Parser - Flight Search
 
-Автоматический поиск авиабилетов на 7 дней вперед с обновлением данных каждые 30 минут.
+Полнофункциональная платформа для поиска авиабилетов авиакомпании "Победа" с  минималистичной аналитикой и масштабируемой архитектурой.
 
-## 🚀 Возможности
+## 🌟 Возможности
 
-- Поиск рейсов по конкретному маршруту
-- Режим "Куда угодно" - все направления из города
-- Календарь цен на 7 дней
-- REST API с Swagger документацией
-- Автоматическое обновление данных
+- 🔍 **Умный поиск** - поиск рейсов на 30 дней вперед
+- 🌍 **Куда угодно** - AI подбор самых дешевых направлений  
+- 📊 **Аналитика цен** - графики и статистика
+- 🐳 **Cloud Native** - Docker & Kubernetes готовность
+- 📈 **Мониторинг** - ELK стек + Grafana
+- 🔄 **Event-Driven** - Kafka для обработки событий
+- ⚡ **Кеширование** - Redis для ускорения запросов
 
-## 🛠 Технологии
+## 🏗 Архитектура
+┌─────────────────┐ ┌──────────────────┐ ┌─────────────────┐
+│ Frontend │───▶│ Backend API │───▶│ PostgreSQL │
+│ (React/Vue) │ │ (FastAPI) │ │ (Database) │
+└─────────────────┘ └──────────────────┘ └─────────────────┘
+│ ▲
+│ │
+┌───┴──┴───┐
+│ Kafka │
+│ (Events) │
+└───┬──┬───┘
+│ │
+┌─────────────┘ └─────────────┐
+│ │
+┌────┴─────┐ ┌─────┴────┐
+│ Redis │ │ ELK │
+│ (Cache) │ │ (Logs) │
+└──────────┘ └──────────┘
+## 🚀 Быстрый старт
 
-- Python 3.11
-- Flask
-- Selenium
-- SQLite
-- Chart.js
+### Локальный запуск (Docker)
+# 1. База данных и кеш
+kubectl apply -f k8s/postgres.yml
+kubectl apply -f k8s/redis.yml
+kubectl apply -f k8s/elasticsearch.yml
 
-## 📊 API Документация
+# 2. Backend со ВСТРОЕННОЙ Kafka (уже включает Zookeeper)
+kubectl apply -f k8s/backend-with-kafka.yml
 
-После запуска доступна по адресу: `/api/docs`
+# 3. Kafka UI (если нужен)
+kubectl apply -f k8s/kafka-ui.yml
 
-## 🔧 Установка
+#4. FRONTEND:
 
-```bash
-pip install -r requirements.txt
-python app.py
+kubectl apply -f k8s/frontend.yml
+
+Полная инструкция по port-forward:
+1. Backend API (основной сервис)
+   bash
+   kubectl port-forward service/pobeda-backend-service 8000:8000
+   URL: http://localhost:8000
+   Docs: http://localhost:8000/docs
+
+2. Frontend (веб-интерфейс)
+   bash
+   kubectl port-forward service/frontend 3000:80
+   URL: http://localhost:3000
+
+3. Kafka UI (мониторинг Kafka)
+   bash
+   kubectl port-forward service/kafka-ui 8080:8080
+   URL: http://localhost:8080
+
+4. Elasticsearch (логи и поиск)
+   bash
+   kubectl port-forward service/elasticsearch 9200:9200
+   URL: http://localhost:9200
+
+P.S. в ночь со вторника на среду сервера победы отключаются, видимо на обновления...
+
+🔧 Технологии
+Backend: FastAPI, SQLAlchemy, PostgreSQL, Redis, Kafka
+Frontend: React/Vue, Chart.js, Bootstrap
+Infra: Docker, Kubernetes, ELK, Grafana
+Monitoring: Prometheus, Kibana, Kafka UI

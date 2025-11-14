@@ -1,841 +1,605 @@
-import os
-from flask import Flask, jsonify, request, render_template_string
-from flask_cors import CORS
-from database import FlightDatabase
-import time
-from datetime import datetime, timedelta
-import re
+from typing import List, Dict
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+import uvicorn
+import asyncio
+import logging
+import redis
+from kafka import KafkaProducer, KafkaConsumer
 import json
+import time
+import subprocess
+import threading
+from flight_service import FlightService
 
-app = Flask(__name__)
-CORS(app)  # Защита CORS
+logger = logging.getLogger(__name__)
 
-# Защита от XSS инъекций
-def safe_html(text):
-    """Экранирование HTML символов"""
-    if not text:
-        return ""
-    return (str(text)
-            .replace('&', '&amp;')
-            .replace('<', '&lt;')
-            .replace('>', '&gt;')
-            .replace('"', '&quot;')
-            .replace("'", '&#x27;'))
+from database import get_db, create_tables
+from config import settings
 
-# Swagger документация
-SWAGGER_HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Pobeda Parser API</title>
-    <script src="https://unpkg.com/swagger-ui-dist@3/swagger-ui-standalone-preset.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@3/swagger-ui-bundle.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@3/swagger-ui.css">
-</head>
-<body>
-    <div id="swagger-ui"></div>
-    <script>
-        const ui = SwaggerUIBundle({
-            url: "/api/swagger.json",
-            dom_id: '#swagger-ui',
-            presets: [SwaggerUIBundle.presets.apis],
-            layout: "BaseLayout"
-        })
-    </script>
-</body>
-</html>
-'''
+# Глобальные клиенты (инициализируются в lifespan)
+redis_client = None
+kafka_producer = None
+KAFKA_ENABLED = False
 
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎯 Умный трекер цен Победы</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --error: #ef4444;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #1e293b;
-            --text-light: #64748b;
-            --border: #e2e8f0;
-        }
-        
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: var(--text);
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .glass-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .header { 
-            text-align: center; 
-            margin-bottom: 30px;
-        }
-        
-        .header h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--primary), #7c3aed);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
-        }
-        
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr auto;
-            gap: 15px;
-            align-items: end;
-            margin-bottom: 30px;
-        }
-        
-        @media (max-width: 768px) {
-            .controls {
-                grid-template-columns: 1fr;
-            }
-        }
-        
-        .form-group { display: flex; flex-direction: column; }
-        .form-group label { 
-            font-weight: 500; 
-            margin-bottom: 5px;
-            color: var(--text-light);
-        }
-        
-        select, input, button {
-            padding: 12px 16px;
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            font-size: 16px;
-            transition: all 0.3s;
-            background: white;
-        }
-        
-        select:focus, input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-        
-        button {
-            background: var(--primary);
-            color: white;
-            border: none;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        button:hover { background: var(--primary-dark); transform: translateY(-1px); }
-        button:disabled { background: var(--text-light); cursor: not-allowed; transform: none; }
-        
-        .progress-section { margin: 30px 0; }
-        .progress-bar {
-            height: 8px;
-            background: var(--border);
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--success), var(--primary));
-            border-radius: 10px;
-            transition: width 0.5s;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            border-left: 4px solid var(--primary);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .stat-number {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .calendar {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 10px;
-            margin: 20px 0;
-        }
-        
-        @media (max-width: 768px) {
-            .calendar {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        
-        .day {
-            padding: 15px;
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            background: white;
-        }
-        
-        .day:hover { border-color: var(--primary); transform: translateY(-2px); }
-        .day.cheap { background: #dcfce7; border-color: var(--success); }
-        .day.expensive { background: #fecaca; border-color: var(--error); }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-        }
-        
-        th, td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        th {
-            background: var(--primary);
-            color: white;
-            font-weight: 600;
-        }
-        
-        tr:hover { background: #f8fafc; }
-        
-        .api-link {
-            text-align: center;
-            margin: 20px 0;
-        }
-        
-        .api-link a {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 500;
-            padding: 10px 20px;
-            border: 2px solid var(--primary);
-            border-radius: 8px;
-            transition: all 0.3s;
-        }
-        
-        .api-link a:hover {
-            background: var(--primary);
-            color: white;
-        }
-        
-        .status-message {
-            padding: 15px;
-            border-radius: 12px;
-            margin: 10px 0;
-            text-align: center;
-            font-weight: 500;
-        }
-        
-        .status-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-        .status-warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        .status-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="glass-card">
-            <div class="header">
-                <h1>🎯 Умный трекер цен Победы</h1>
-                <p>Автоматический поиск билетов на 7 дней вперед • Данные обновляются каждые 30 минут</p>
-            </div>
-            
-            <div class="controls">
-                <div class="form-group">
-                    <label>🛫 Откуда</label>
-                    <select id="fromCity">
-                        <option value="">Выберите город</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label>🎯 Направление</label>
-                    <select id="toCity">
-                        <option value="ANYWHERE">Куда угодно</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label>📅 Дата начала</label>
-                    <input type="date" id="startDate">
-                </div>
-                
-                <button onclick="loadPrices()" id="searchBtn">
-                    <span>🔍</span>
-                    <span>Найти билеты</span>
-                </button>
-            </div>
-            
-            <div id="statusMessage"></div>
-            
-            <div id="progressSection" class="progress-section" style="display: none;">
-                <h3>📡 Прогресс загрузки данных</h3>
-                <div class="progress-bar">
-                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
-                </div>
-                <div id="progressText">Загрузка данных...</div>
-            </div>
-            
-            <div id="stats" class="stats-grid" style="display: none;"></div>
-            
-            <div id="calendarInfo" style="display: none;">
-                <h3>📅 Календарь цен на 7 дней</h3>
-                <div id="priceCalendar" class="calendar"></div>
-            </div>
-            
-            <div id="flightsList"></div>
-            
-            <div class="api-link">
-                <a href="/api/docs" target="_blank">📚 API Documentation</a>
-            </div>
-        </div>
-    </div>
+def start_kafka_services():
+    """Запускает Zookeeper и Kafka в фоновых процессах"""
+    def run_zookeeper():
+        try:
+            process = subprocess.Popen([
+                '/kafka/bin/zookeeper-server-start.sh',
+                '/kafka/config/zookeeper.properties'
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info("✅ Zookeeper started")
+            return process
+        except Exception as e:
+            logger.error(f"❌ Failed to start Zookeeper: {e}")
+            return None
 
-    <script>
-        const API_BASE = window.location.origin + '/api';
-        const CITIES = {{ cities|tojson }};
-        let priceChart = null;
-        let currentPriceCalendar = {};
-        
-        // Инициализация
-        document.addEventListener('DOMContentLoaded', function() {
-            initCities();
-            checkProgress();
-            setInterval(checkProgress, 10000); // Проверяем прогресс каждые 10 сек
-        });
-        
-        function initCities() {
-            const fromSelect = document.getElementById('fromCity');
-            const toSelect = document.getElementById('toCity');
-            
-            CITIES.forEach(city => {
-                fromSelect.innerHTML += `<option value="${city}">${city}</option>`;
-                if (city !== 'ANYWHERE') {
-                    toSelect.innerHTML += `<option value="${city}">${city}</option>`;
-                }
-            });
-            
-            // Устанавливаем дату (завтра)
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            document.getElementById('startDate').value = tomorrow.toISOString().split('T')[0];
-            document.getElementById('startDate').min = new Date().toISOString().split('T')[0];
-            
-            // Обновляем направления при изменении города отправления
-            fromSelect.addEventListener('change', updateDestinations);
-        }
-        
-        function updateDestinations() {
-            const fromCity = document.getElementById('fromCity').value;
-            const toSelect = document.getElementById('toCity');
-            
-            toSelect.innerHTML = '<option value="ANYWHERE">Куда угодно</option>';
-            
-            if (fromCity) {
-                CITIES.filter(city => city !== fromCity).forEach(city => {
-                    toSelect.innerHTML += `<option value="${city}">${city}</option>`;
-                });
-            }
-        }
-        
-        async function checkProgress() {
-            try {
-                const response = await fetch(`${API_BASE}/progress`);
-                const data = await response.json();
-                
-                const progressSection = document.getElementById('progressSection');
-                const progressFill = document.getElementById('progressFill');
-                const progressText = document.getElementById('progressText');
-                const statusMessage = document.getElementById('statusMessage');
-                
-                if (data.progress) {
-                    const progress = data.progress;
-                    
-                    if (progress.status === 'completed') {
-                        progressSection.style.display = 'none';
-                        if (data.total_flights > 0) {
-                            showStatus('✅ Данные готовы к поиску! Найдено ' + data.total_flights + ' рейсов', 'success');
-                        }
-                    } else {
-                        progressSection.style.display = 'block';
-                        const percent = progress.total_routes > 0 ? 
-                            Math.round((progress.processed_routes / progress.total_routes) * 100) : 0;
-                        progressFill.style.width = percent + '%';
-                        
-                        progressText.innerHTML = `
-                            ${progress.status === 'running' ? '🔄' : '⏳'} 
-                            ${progress.current_route || 'Подготовка...'} 
-                            (${percent}% • ${progress.processed_routes}/${progress.total_routes} маршрутов)
-                        `;
-                        
-                        showStatus('⏳ Идет загрузка данных...', 'warning');
-                    }
-                } else if (data.total_flights > 0) {
-                    progressSection.style.display = 'none';
-                    showStatus('✅ Данные готовы к поиску! Найдено ' + data.total_flights + ' рейсов', 'success');
-                } else {
-                    showStatus('📊 База данных пуста. Запустите мониторинг.', 'warning');
-                }
-                
-            } catch (error) {
-                console.error('Ошибка проверки прогресса:', error);
-                showStatus('❌ Ошибка подключения к серверу', 'error');
-            }
-        }
-        
-        function showStatus(message, type) {
-            const statusMessage = document.getElementById('statusMessage');
-            statusMessage.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
-        }
-        
-        async function loadPrices() {
-            const fromCity = document.getElementById('fromCity').value;
-            const toCity = document.getElementById('toCity').value;
-            const startDate = document.getElementById('startDate').value;
-            const searchBtn = document.getElementById('searchBtn');
-            
-            if (!fromCity) {
-                showStatus('❌ Выберите город отправления', 'error');
-                return;
-            }
-            
-            if (!startDate) {
-                showStatus('❌ Выберите дату начала', 'error');
-                return;
-            }
-            
-            searchBtn.disabled = true;
-            searchBtn.innerHTML = '<span>⏳</span><span>Ищем билеты...</span>';
-            showStatus('🔍 Ищем билеты...', 'warning');
-            
-            // Скрываем предыдущие результаты
-            document.getElementById('calendarInfo').style.display = 'none';
-            document.getElementById('stats').style.display = 'none';
-            document.getElementById('flightsList').innerHTML = '';
-            
-            const params = new URLSearchParams({
-                city_from: fromCity,
-                city_to: toCity,
-                date: formatDate(startDate)
-            });
-            
-            try {
-                const response = await fetch(`${API_BASE}/flights?${params}`);
-                const data = await response.json();
-                
-                if (data.error) {
-                    showStatus('❌ ' + data.error, 'error');
-                } else if (data.data && data.data.length > 0) {
-                    showStatus(`✅ Найдено ${data.data.length} рейсов`, 'success');
-                    renderCalendar(data.data, startDate);
-                    renderStats(data.data);
-                    renderFlights(data.data);
-                } else {
-                    showStatus('❌ Рейсы не найдены', 'error');
-                }
-            } catch (error) {
-                console.error('Ошибка:', error);
-                showStatus('❌ Ошибка подключения: ' + error.message, 'error');
-            } finally {
-                searchBtn.disabled = false;
-                searchBtn.innerHTML = '<span>🔍</span><span>Найти билеты</span>';
-            }
-        }
-        
-        function formatDate(dateString) {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('ru-RU');
-        }
-        
-        function renderCalendar(flights, startDate) {
-            const calendarDiv = document.getElementById('priceCalendar');
-            const calendarInfo = document.getElementById('calendarInfo');
-            
-            if (!flights || flights.length === 0) {
-                calendarInfo.style.display = 'none';
-                return;
-            }
-            
-            // Группируем по датам
-            const flightsByDate = {};
-            flights.forEach(flight => {
-                if (!flightsByDate[flight.date]) {
-                    flightsByDate[flight.date] = [];
-                }
-                flightsByDate[flight.date].push(flight);
-            });
-            
-            // Находим мин и макс цены
-            const prices = flights.map(f => f.price_basic).filter(p => p > 0);
-            const minPrice = Math.min(...prices);
-            const maxPrice = Math.max(...prices);
-            
-            let html = '';
-            const start = new Date(startDate);
-            
-            for (let i = 0; i < 7; i++) {
-                const currentDate = new Date(start);
-                currentDate.setDate(start.getDate() + i);
-                const dateStr = currentDate.toISOString().split('T')[0];
-                const dayFlights = flightsByDate[dateStr];
-                const minPriceForDay = dayFlights ? Math.min(...dayFlights.map(f => f.price_basic)) : null;
-                
-                let dayClass = 'day';
-                if (minPriceForDay) {
-                    if (minPriceForDay === minPrice) dayClass += ' cheap';
-                    if (minPriceForDay === maxPrice) dayClass += ' expensive';
-                }
-                
-                html += `<div class="${dayClass}">
-                    <div style="font-weight: bold;">${currentDate.getDate()} ${currentDate.toLocaleString('ru', { month: 'short' })}</div>
-                    <div style="font-size: 12px; color: #666;">${currentDate.toLocaleString('ru', { weekday: 'short' })}</div>
-                    <div style="margin-top: 5px; font-weight: bold;">${minPriceForDay ? minPriceForDay + ' ₽' : 'Нет данных'}</div>
-                </div>`;
-            }
-            
-            calendarDiv.innerHTML = html;
-            calendarInfo.style.display = 'block';
-        }
-        
-        function renderStats(flights) {
-            const statsDiv = document.getElementById('stats');
-            
-            if (!flights || flights.length === 0) {
-                statsDiv.style.display = 'none';
-                return;
-            }
-            
-            const prices = flights.map(f => f.price_basic).filter(p => p > 0);
-            const minPrice = Math.min(...prices);
-            const maxPrice = Math.max(...prices);
-            const avgPrice = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
-            const uniqueDates = new Set(flights.map(f => f.date)).size;
-            const uniqueRoutes = new Set(flights.map(f => f.departure_city + '->' + f.arrival_city)).size;
-            
-            statsDiv.innerHTML = `
-                <div class="stat-card">
-                    <div class="stat-number">${minPrice}</div>
-                    <div>Минимальная цена</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">${maxPrice}</div>
-                    <div>Максимальная цена</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">${avgPrice}</div>
-                    <div>Средняя цена</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">${flights.length}</div>
-                    <div>Всего рейсов</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">${uniqueDates}</div>
-                    <div>Дней с данными</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">${uniqueRoutes}</div>
-                    <div>Уникальных маршрутов</div>
-                </div>
-            `;
-            
-            statsDiv.style.display = 'grid';
-        }
-        
-        function renderFlights(flights) {
-            const flightsList = document.getElementById('flightsList');
-            
-            if (!flights || flights.length === 0) {
-                flightsList.innerHTML = '<p>Рейсы не найдены</p>';
-                return;
-            }
-            
-            let html = '<h3>🎫 Найденные рейсы</h3><table><tr><th>Дата</th><th>Рейс</th><th>Вылет</th><th>Прилет</th><th>В пути</th><th>Направление</th><th>Цена</th></tr>';
-            
-            flights.forEach(flight => {
-                html += `<tr>
-                    <td>${flight.date}</td>
-                    <td>${flight.flight_number}</td>
-                    <td>${flight.departure_time}</td>
-                    <td>${flight.arrival_time}</td>
-                    <td>${flight.duration}</td>
-                    <td>${flight.departure_city} → ${flight.arrival_city}</td>
-                    <td style="font-weight: bold; color: #10b981;">${flight.price_basic} ₽</td>
-                </tr>`;
-            });
-            
-            html += '</table>';
-            flightsList.innerHTML = html;
-        }
-    </script>
-</body>
-</html>
-'''
+    def run_kafka():
+        try:
+            # Ждем немного чтобы Zookeeper запустился
+            time.sleep(10)
+            process = subprocess.Popen([
+                '/kafka/bin/kafka-server-start.sh',
+                '/kafka/config/server.properties'
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            logger.info("✅ Kafka started")
+            return process
+        except Exception as e:
+            logger.error(f"❌ Failed to start Kafka: {e}")
+            return None
 
-@app.route('/')
-def home():
-    cities = [
-        "Москва", "Санкт-Петербург", "Сочи", "Стамбул",
-        "Минеральные Воды", "Казань", "Калининград", "Аланья", "Абу-Даби", "Анталия",
-        "Владикавказ", "Гюмри", "Даламан", "Дубай", "Иркутск", "Волгоград",
-        "Екатеринбург", "Новосибирск", "Владивосток", "Краснодар", "Красноярск",
-        "Махачкала", "Минск", "Мурманск", "Нальчик", "Омск", "Пермь", "Самара",
-        "Сургут", "Уфа", "Челябинск", "Тюмень", "Ташкент"
-    ]
-    return render_template_string(HTML_TEMPLATE, cities=cities)
+    # Запускаем в отдельных потоках
+    import threading
+    zk_thread = threading.Thread(target=run_zookeeper, daemon=True)
+    kafka_thread = threading.Thread(target=run_kafka, daemon=True)
 
-@app.route('/api/flights')
-def get_flights():
-    """API для поиска рейсов"""
-    city_from = request.args.get('city_from', '').strip()
-    city_to = request.args.get('city_to', '').strip()
-    date_str = request.args.get('date', '').strip()
+    zk_thread.start()
+    kafka_thread.start()
 
-    # Валидация входных данных
-    if not city_from:
-        return jsonify({'error': 'Параметр city_from обязателен'}), 400
+    logger.info("🚀 Kafka services starting in background threads...")
 
-    if not date_str:
-        return jsonify({'error': 'Параметр date обязателен (формат: dd.mm.yyyy)'}), 400
+async def init_redis():
+    """Инициализация Redis с повторными попытками"""
+    global redis_client
+    max_retries = 5
+    for i in range(max_retries):
+        try:
+            redis_client = redis.Redis(
+                host='redis',
+                port=6379,
+                decode_responses=True,
+                socket_connect_timeout=5
+            )
+            redis_client.ping()
+            logger.info("✅ Redis connected successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"Redis connection attempt {i+1}/{max_retries} failed: {e}")
+            if i < max_retries - 1:
+                await asyncio.sleep(2)
 
-    # Проверяем формат даты
-    try:
-        datetime.strptime(date_str, '%d.%m.%Y')
-    except ValueError:
-        return jsonify({'error': 'Неверный формат даты. Используйте: dd.mm.yyyy'}), 400
+    logger.error("❌ Redis connection failed after all retries")
+    return False
 
-    db = FlightDatabase()
+async def init_kafka():
+    """Инициализация Kafka с повторными попытками"""
+    global kafka_producer, KAFKA_ENABLED
+    max_retries = 5
+    for i in range(max_retries):
+        try:
+            kafka_producer = KafkaProducer(
+                bootstrap_servers=['localhost:9092'],  # ← ИЗМЕНИТЬ С 'kafka:9092' на 'localhost:9092'
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                retries=3,
+                request_timeout_ms=10000
+            )
+            # Тестовый запрос для проверки подключения
+            kafka_producer.send('health-check', {'status': 'test'})
+            KAFKA_ENABLED = True
+            logger.info("✅ Kafka connected successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"Kafka connection attempt {i+1}/{max_retries} failed: {e}")
+            if i < max_retries - 1:
+                await asyncio.sleep(3)
 
-    try:
-        if city_to.upper() == 'ANYWHERE':
-            # Для "Куда угодно" - получаем все рейсы из города
-            flights = db.get_anywhere_flights(city_from, 7)
-        else:
-            # Конкретный маршрут
-            flights = db.get_flights_by_route(city_from, city_to, date_str, 7)
+    logger.warning("❌ Kafka connection failed, running without Kafka")
+    KAFKA_ENABLED = False
+    return False
 
-        return jsonify({
-            'success': True,
-            'data': flights,
-            'total': len(flights),
-            'search_params': {
-                'city_from': city_from,
-                'city_to': city_to,
-                'date': date_str
-            }
-        })
+def send_kafka_event(topic: str, event_data: dict):
+    """Безопасная отправка событий в Kafka"""
+    if KAFKA_ENABLED and kafka_producer:
+        try:
+            event_data['timestamp'] = datetime.utcnow().isoformat()
+            event_data['service'] = 'pobeda-backend'
+            kafka_producer.send(topic, event_data)
+            logger.info(f"📨 Sent event to {topic}: {event_data.get('event_type', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Failed to send Kafka event to {topic}: {e}")
 
-    except Exception as e:
-        return jsonify({'error': f'Ошибка при поиске рейсов: {str(e)}'}), 500
+# Фоновые задачи
+background_tasks = set()
 
-@app.route('/api/progress')
-def get_progress():
-    """API для получения прогресса мониторинга"""
-    try:
-        db = FlightDatabase()
-        progress = db.get_progress()
-        total_flights = db.get_total_flights_count()
+async def background_price_updater():
+    """Фоновая задача для обновления цен"""
+    while True:
+        try:
+            from database import SessionLocal
+            from background_service import BackgroundPriceUpdater
 
-        return jsonify({
-            'progress': progress,
-            'total_flights': total_flights,
-            'has_data': total_flights > 0
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            db = SessionLocal()
+            updater = BackgroundPriceUpdater(db)
 
-@app.route('/api/docs')
-def swagger_ui():
-    """Swagger UI интерфейс"""
-    return render_template_string(SWAGGER_HTML)
+            logger.info("🚀 Starting background price update...")
+            updated_count = await updater.update_all_popular_routes()
 
-@app.route('/api/swagger.json')
-def swagger_json():
-    """Swagger спецификация API"""
-    swagger = {
-        "openapi": "3.0.0",
-        "info": {
-            "title": "Pobeda Parser API",
-            "description": "API для поиска авиабилетов авиакомпании Победа",
-            "version": "1.0.0",
-            "contact": {
-                "name": "API Support"
-            }
-        },
-        "servers": [
-            {
-                "url": "http://localhost:5000",
-                "description": "Development server"
-            }
-        ],
-        "paths": {
-            "/api/flights": {
-                "get": {
-                    "summary": "Поиск авиарейсов",
-                    "description": "Поиск рейсов на 7 дней вперед с указанной даты",
-                    "parameters": [
-                        {
-                            "name": "city_from",
-                            "in": "query",
-                            "required": True,
-                            "schema": {
-                                "type": "string"
-                            },
-                            "description": "Город отправления"
-                        },
-                        {
-                            "name": "city_to",
-                            "in": "query",
-                            "required": False,
-                            "schema": {
-                                "type": "string"
-                            },
-                            "description": "Город прибытия (или ANYWHERE для поиска во все города)"
-                        },
-                        {
-                            "name": "date",
-                            "in": "query",
-                            "required": True,
-                            "schema": {
-                                "type": "string"
-                            },
-                            "description": "Дата начала поиска в формате dd.mm.yyyy"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Успешный поиск",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "success": {"type": "boolean"},
-                                            "data": {
-                                                "type": "array",
-                                                "items": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "flight_number": {"type": "string"},
-                                                        "departure_time": {"type": "string"},
-                                                        "arrival_time": {"type": "string"},
-                                                        "duration": {"type": "string"},
-                                                        "price_basic": {"type": "integer"},
-                                                        "date": {"type": "string"},
-                                                        "departure_city": {"type": "string"},
-                                                        "arrival_city": {"type": "string"}
-                                                    }
-                                                }
-                                            },
-                                            "total": {"type": "integer"}
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        "400": {
-                            "description": "Неверные параметры запроса"
-                        },
-                        "500": {
-                            "description": "Внутренняя ошибка сервера"
-                        }
-                    }
-                }
-            },
-            "/api/progress": {
-                "get": {
-                    "summary": "Получение прогресса мониторинга",
-                    "description": "Возвращает текущий статус сбора данных",
-                    "responses": {
-                        "200": {
-                            "description": "Успешный запрос",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "progress": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "total_cities": {"type": "integer"},
-                                                    "processed_cities": {"type": "integer"},
-                                                    "total_routes": {"type": "integer"},
-                                                    "processed_routes": {"type": "integer"},
-                                                    "total_flights": {"type": "integer"},
-                                                    "status": {"type": "string"},
-                                                    "current_route": {"type": "string"}
-                                                }
-                                            },
-                                            "total_flights": {"type": "integer"},
-                                            "has_data": {"type": "boolean"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return jsonify(swagger)
+            # Отправляем событие в Kafka
+            send_kafka_event('background-jobs', {
+                'event_type': 'price_update_completed',
+                'routes_updated': updated_count
+            })
 
-@app.route('/api/health')
-def health_check():
-    """Проверка здоровья API"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': '1.0.0'
+            logger.info(f"✅ Background update finished: {updated_count} routes updated")
+            db.close()
+
+        except Exception as e:
+            logger.error(f"Error in background price updater: {e}")
+            send_kafka_event('error-logs', {
+                'event_type': 'background_job_error',
+                'job': 'price_updater',
+                'error': str(e)
+            })
+
+        await asyncio.sleep(60 * 60)  # 1 hour
+
+async def background_cities_updater():
+    """Фоновая задача для обновления активных городов"""
+    while True:
+        try:
+            from database import SessionLocal
+            from city_service import CityService
+
+            db = SessionLocal()
+            city_service = CityService(db)
+
+            logger.info("🚀 Starting background cities update...")
+            updated_count = await city_service.update_active_cities_in_db()
+
+            send_kafka_event('background-jobs', {
+                'event_type': 'cities_update_completed',
+                'active_cities': updated_count
+            })
+
+            logger.info(f"✅ Background cities update finished: {updated_count} active cities")
+            db.close()
+
+        except Exception as e:
+            logger.error(f"Error in background cities updater: {e}")
+            send_kafka_event('error-logs', {
+                'event_type': 'background_job_error',
+                'job': 'cities_updater',
+                'error': str(e)
+            })
+
+        await asyncio.sleep(24 * 60 * 60)  # 24 hours
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("🚀 Starting Pobeda Parser API with Embedded Kafka...")
+
+    # ✅ ДОБАВЬТЕ ЭТИ 4 СТРОЧКИ:
+    # Запускаем Kafka сервисы
+    start_kafka_services()
+
+    # Ждем немного перед инициализацией Kafka клиента
+    await asyncio.sleep(25)
+    # ✅ КОНЕЦ ДОБАВЛЕНИЯ
+
+    create_tables()
+    logger.info("✅ Database tables created")
+
+    # Инициализируем Redis и Kafka
+    redis_ok = await init_redis()
+    kafka_ok = await init_kafka()
+
+    # Запускаем фоновые задачи
+    price_task = asyncio.create_task(background_price_updater())
+    cities_task = asyncio.create_task(background_cities_updater())
+
+    background_tasks.add(price_task)
+    background_tasks.add(cities_task)
+
+    price_task.add_done_callback(background_tasks.discard)
+    cities_task.add_done_callback(background_tasks.discard)
+
+    logger.info("✅ Background tasks started")
+
+    # Отправляем событие о старте приложения
+    send_kafka_event('system-events', {
+        'event_type': 'app_started',
+        'redis_connected': redis_ok,
+        'kafka_connected': kafka_ok
     })
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    yield
+
+    # Shutdown
+    logger.info("🛑 Shutting down Pobeda Parser API...")
+
+    for task in background_tasks:
+        task.cancel()
+    await asyncio.gather(*background_tasks, return_exceptions=True)
+
+    # Закрываем соединения
+    if redis_client:
+        redis_client.close()
+    if kafka_producer:
+        kafka_producer.close()
+
+    logger.info("✅ Pobeda Parser API stopped")
+
+app = FastAPI(
+    title="Pobeda Parser API",
+    description="API для парсинга цен авиакомпании Победа",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Health check с проверкой всех сервисов
+@app.get("/")
+async def health_check():
+    """Проверка здоровья всех компонентов системы"""
+    redis_status = "unknown"
+    if redis_client:
+        try:
+            redis_client.ping()
+            redis_status = "healthy"
+        except Exception as e:
+            redis_status = f"error: {e}"
+
+    return {
+        "message": "Pobeda Parser API работает! 🚀",
+        "status": "healthy",
+        "services": {
+            "redis": redis_status,
+            "kafka": "enabled" if KAFKA_ENABLED else "disabled"
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+# Тестовые эндпоинты
+@app.get("/test-redis")
+async def test_redis():
+    """Тест подключения к Redis"""
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not initialized")
+
+    try:
+        # Тест записи
+        test_key = f"test:{datetime.utcnow().strftime('%H%M%S')}"
+        redis_client.set(test_key, "test_value", ex=60)
+
+        # Тест чтения
+        value = redis_client.get(test_key)
+
+        send_kafka_event('test-events', {
+            'event_type': 'redis_test',
+            'status': 'success',
+            'key': test_key,
+            'value': value
+        })
+
+        return {
+            "status": "success",
+            "message": "Redis connection OK",
+            "data": {"key": test_key, "value": value}
+        }
+    except Exception as e:
+        send_kafka_event('error-logs', {
+            'event_type': 'redis_test_error',
+            'error': str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Redis test failed: {e}")
+
+@app.get("/test-kafka")
+async def test_kafka():
+    """Тест отправки сообщений в Kafka"""
+    if not KAFKA_ENABLED:
+        raise HTTPException(status_code=503, detail="Kafka not available")
+
+    try:
+        test_event = {
+            'event_type': 'kafka_test',
+            'message': 'Test message from Pobeda Parser API',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
+        send_kafka_event('test-events', test_event)
+
+        return {
+            "status": "success",
+            "message": "Kafka event sent successfully",
+            "event": test_event
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kafka test failed: {e}")
+
+@app.get("/cache-test")
+async def cache_test():
+    """Тест Redis и Kafka вместе"""
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis not initialized")
+
+    try:
+        # Тест Redis
+        redis_client.set("cache_test_key", "cache_test_value", ex=60)
+        value = redis_client.get("cache_test_key")
+
+        # Тест Kafka
+        send_kafka_event('test-events', {
+            'event_type': 'cache_test',
+            'action': 'cache_test',
+            'redis_value': value
+        })
+
+        return {
+            "redis": value,
+            "kafka": "event_sent",
+            "status": "success"
+        }
+    except Exception as e:
+        send_kafka_event('error-logs', {
+            'event_type': 'cache_test_error',
+            'error': str(e)
+        })
+        raise HTTPException(status_code=500, detail=f"Cache test failed: {e}")
+
+# Логирование
+@app.post("/api/logs/frontend", summary="Прием логов с фронтенда")
+async def receive_frontend_logs(log_data: dict, db: Session = Depends(get_db)):
+    """Принимает логи с фронтенда и отправляет в ELK"""
+    try:
+        # Логируем на бекенде
+        logger.info("Frontend log received", extra={"frontend_data": log_data})
+
+        # Отправляем в Kafka
+        send_kafka_event('frontend-logs', {
+            'event_type': 'frontend_log',
+            'level': log_data.get('level'),
+            'message': log_data.get('message'),
+            'user_agent': log_data.get('userAgent'),
+            'url': log_data.get('url')
+        })
+
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error processing frontend log: {e}")
+        send_kafka_event('error-logs', {
+            'event_type': 'log_processing_error',
+            'error': str(e)
+        })
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/logs/backend", summary="Логи бекенда")
+async def receive_backend_logs(log_data: dict):
+    """Принимает логи с других сервисов бекенда"""
+    logger.info("Backend log received", extra={"backend_data": log_data})
+
+    send_kafka_event('backend-logs', {
+        'event_type': 'backend_log',
+        'data': log_data
+    })
+
+    return {"status": "success"}
+
+@app.get("/cities")
+async def get_cities(
+        skip: int = 0,
+        limit: int = 500,
+        db: Session = Depends(get_db)
+):
+    """Получить список всех городов"""
+    from city_service import CityService
+    from models import City
+
+    city_service = CityService(db)
+
+    # Обновляем города из API
+    await city_service.update_cities_from_api()
+
+    # Получаем все города из БД
+    cities = db.query(City).offset(skip).limit(limit).all()
+
+    send_kafka_event('api-requests', {
+        'event_type': 'cities_request',
+        'endpoint': '/cities',
+        'cities_count': len(cities)
+    })
+
+    return cities
+
+@app.get("/cities/active", summary="Получить активные города", description="Возвращает только города, откуда ЕСТЬ рейсы Победы")
+async def get_active_cities(
+        skip: int = Query(0, description="Количество пропущенных записей (для пагинации)"),
+        limit: int = Query(500, description="Максимальное количество возвращаемых записей"),
+        db: Session = Depends(get_db)
+):
+    """Получить список только АКТИВНЫХ городов (откуда есть рейсы)"""
+    from models import City
+
+    cities = db.query(City).filter(
+        City.is_active == True
+    ).offset(skip).limit(limit).all()
+
+    send_kafka_event('api-requests', {
+        'event_type': 'cities_request',
+        'endpoint': '/cities/active',
+        'cities_count': len(cities)
+    })
+
+    return {
+        "total_active": db.query(City).filter(City.is_active == True).count(),
+        "cities": cities
+    }
+
+@app.get("/flights/search", summary="Поиск рейсов на месяц", description="Ищет рейсы между двумя городами на 30 дней вперед")
+async def search_flights(
+        origin: str = Query(..., description="Код города отправления из активных городов, (например: MOW, LED, AER)"),
+        destination: str = Query(..., description="Код города назначения из активных городов"),
+        promo_code: str = Query(None, description="Промокод для поиска (опционально)"),
+        db: Session = Depends(get_db)
+):
+    """Поиск рейсов между городами на месяц вперед"""
+    from models import City
+    from flight_service import FlightService
+
+    # Проверяем что города активные
+    origin_city = db.query(City).filter(City.code == origin, City.is_active == True).first()
+    destination_city = db.query(City).filter(City.code == destination, City.is_active == True).first()
+
+    if not origin_city:
+        raise HTTPException(status_code=400, detail=f"Город отправления '{origin}' не найден или не активен")
+    if not destination_city:
+        raise HTTPException(status_code=400, detail=f"Город назначения '{destination}' не найден или не активен")
+
+    # Отправляем событие о начале поиска
+    send_kafka_event('search-events', {
+        'event_type': 'search_started',
+        'origin': origin,
+        'destination': destination,
+        'promo_code': promo_code
+    })
+
+    flight_service = FlightService(db)
+    search_result = await flight_service.search_flights_month(origin, destination, promo_code)
+
+    # Отправляем событие о завершении поиска
+    send_kafka_event('search-events', {
+        'event_type': 'search_completed',
+        'origin': origin,
+        'destination': destination,
+        'flights_found': len(search_result["flights"]),
+        'promo_code': promo_code,
+        'is_complete': search_result["is_complete"]
+    })
+
+    return {
+        "origin": origin_city.name_ru,
+        "destination": destination_city.name_ru,
+        "promo_code": promo_code,
+        "total_days_searched": search_result["total_days_searched"],
+        "days_with_data": search_result["days_with_data"],
+        "is_complete": search_result["is_complete"],
+        "has_retry_data": search_result["has_retry_data"],
+        "flights": search_result["flights"]
+    }
+
+@app.get("/flights/anywhere", summary="Поиск 'Куда угодно'", description="Ищет самые дешевые рейсы из указанного города во ВСЕ доступные направления на выбранный месяц")
+async def search_anywhere(
+        origin: str = Query(..., description="Код города отправления (например: MOW, LED, AER). Получить коды городов: /cities/active"),
+        months_ahead: int = Query(1, description="На сколько месяцев вперед искать (1-6 месяцев, по умолчанию 1)"),
+        promo_code: str = Query(None, description="Промокод для поиска (опционально)"),
+        max_price: float = Query(None, description="Максимальная цена билета в рублях (опционально)"),
+        db: Session = Depends(get_db)
+):
+    """Поиск самых дешевых рейсов из города в любые доступные направления"""
+    from anywhere_service import AnywhereService
+
+    # Валидация параметров
+    if months_ahead < 1 or months_ahead > 6:
+        raise HTTPException(status_code=400, detail="months_ahead должен быть от 1 до 6")
+
+    # Отправляем событие о начале поиска "Куда угодно"
+    send_kafka_event('anywhere-search', {
+        'event_type': 'anywhere_search_started',
+        'origin': origin,
+        'months_ahead': months_ahead,
+        'max_price': max_price
+    })
+
+    anywhere_service = AnywhereService(db)
+    results = await anywhere_service.search_anywhere(origin, months_ahead, promo_code, max_price)
+
+    # Отправляем событие о завершении поиска
+    send_kafka_event('anywhere-search', {
+        'event_type': 'anywhere_search_completed',
+        'origin': origin,
+        'destinations_found': len(results),
+        'months_ahead': months_ahead
+    })
+
+    return {
+        "origin": origin,
+        "months_ahead": months_ahead,
+        "promo_code": promo_code,
+        "max_price": max_price,
+        "total_destinations_found": len(results),
+        "cheapest_flights": results
+    }
+# Основные эндпоинты для городов
+@app.get("/cities/for-frontend", summary="Города для выбора на фронтенде")
+async def get_cities_for_frontend(db: Session = Depends(get_db)):
+    """Получить активные города в формате для фронтенда"""
+    from city_service import CityService
+
+    city_service = CityService(db)
+    cities = city_service.get_cities_for_frontend()
+
+    return {
+        "cities": cities,
+        "total": len(cities)
+    }
+
+@app.post("/admin/update-active-cities", summary="Обновить активные города")
+async def update_active_cities(db: Session = Depends(get_db)):
+    """Принудительное обновление списка активных городов"""
+    from city_service import CityService
+
+    city_service = CityService(db)
+    updated_count = await city_service.update_active_cities_in_db()
+
+    return {
+        "status": "success",
+        "message": f"Updated {updated_count} active cities",
+        "updated_count": updated_count
+    }
+
+@app.get("/cities/active", summary="Активные города")
+async def get_active_cities(db: Session = Depends(get_db)):
+    """Получить список активных городов"""
+    from models import City
+
+    cities = db.query(City).filter(City.is_active == True).all()
+    return {
+        "total": len(cities),
+        "cities": cities
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.DEBUG
+    )

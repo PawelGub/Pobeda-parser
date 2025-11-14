@@ -1,0 +1,23 @@
+{
+  "name": "pobeda-parser-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for Pobeda Parser - Find the cheapest flights",
+  "main": "index.html",
+  "scripts": {
+    "dev": "live-server --port=3000",
+    "build": "echo 'Frontend build complete'",
+    "start": "live-server --port=3000"
+  },
+  "keywords": [
+    "pobeda",
+    "flights",
+    "parser",
+    "aviation",
+    "travel"
+  ],
+  "author": "Pobeda Parser Team",
+  "license": "MIT",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  }
+}

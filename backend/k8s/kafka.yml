@@ -1,0 +1,83 @@
+# k8s/kafka-final-fix.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      initContainers:
+        - name: wait-for-zookeeper
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Zookeeper..."
+              until nc -z zookeeper 2181; do 
+                sleep 5
+              done
+              echo "Zookeeper ready!"
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.4.0
+          imagePullPolicy: IfNotPresent
+          # ЯВНО форсируем Kafka брокер и отключаем авто-определение
+          command:
+            - bash
+            - -c
+            - |
+              # Удаляем все переменные которые могут вызвать Zookeeper режим
+              unset KAFKA_MODE
+              unset ZK_HOST
+              unset ZK_PORT
+              
+              # Явно устанавливаем брокер режим
+              export KAFKA_MODE="kafka"
+              
+              echo "=== FORCING KAFKA BROKER MODE ==="
+              echo "KAFKA_ZOOKEEPER_CONNECT: $KAFKA_ZOOKEEPER_CONNECT"
+              echo "KAFKA_ADVERTISED_LISTENERS: $KAFKA_ADVERTISED_LISTENERS"
+              
+              # Запускаем Kafka брокер
+              /etc/confluent/docker/run
+          env:
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "zookeeper:2181"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka:9092"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            # Явно указываем что это Kafka брокер
+            - name: KAFKA_MODE
+              value: "kafka"
+          ports:
+            - containerPort: 9092
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - port: 9092
+      targetPort: 9092

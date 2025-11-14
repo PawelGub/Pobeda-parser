@@ -1,0 +1,158 @@
+# docker-compose.full.yml
+version: '3.8'
+
+services:
+  # База данных
+  postgres:
+    image: postgres:15
+    container_name: pobeda_postgres
+    environment:
+      POSTGRES_DB: pobeda_flights
+      POSTGRES_USER: pobeda_user
+      POSTGRES_PASSWORD: pobeda_password
+    ports: ["5432:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pobeda_network
+
+  # Бекенд FastAPI
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: pobeda_backend
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://pobeda_user:pobeda_password@postgres:5432/pobeda_flights
+      - REDIS_URL=redis://redis:6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    ports: ["8000:8000"]
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+    networks:
+      - pobeda_network
+
+  # Фронтенд (Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: pobeda_frontend
+    ports: ["80:80", "443:443"]
+    depends_on:
+      - backend
+    networks:
+      - pobeda_network
+
+  # Redis для кеша
+  redis:
+    image: redis:7-alpine
+    container_name: pobeda_redis
+    ports: ["6379:6379"]
+    networks:
+      - pobeda_network
+
+  # ELK стек
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.5.0
+    container_name: pobeda_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports: ["9200:9200"]
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - pobeda_network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.5.0
+    container_name: pobeda_logstash
+    ports: ["5000:5000", "9600:9600"]
+    volumes:
+      - ./monitoring/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    depends_on:
+      - elasticsearch
+    networks:
+      - pobeda_network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.5.0
+    container_name: pobeda_kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports: ["5601:5601"]
+    depends_on:
+      - elasticsearch
+    networks:
+      - pobeda_network
+
+  # Grafana для метрик
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pobeda_grafana
+    ports: ["3000:3000"]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - elasticsearch
+    networks:
+      - pobeda_network
+
+  # Kafka для событий
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: pobeda_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    healthcheck:
+      test: [ "CMD", "echo", "ruok", "|", "nc", "localhost", "2181" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pobeda_network
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: pobeda_kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports: [ "9092:9092" ]
+    healthcheck:
+      test: [ "CMD", "kafka-topics", "--list", "--bootstrap-server", "localhost:9092" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pobeda_network
+
+  # Мониторинг
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pobeda_prometheus
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - pobeda_network
+
+volumes:
+  postgres_data:
+  elasticsearch_data:
+  grafana_data:
+
+networks:
+  pobeda_network:
+    driver: bridge
