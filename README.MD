@@ -50,23 +50,23 @@ kubectl apply -f k8s/frontend.yml
 
 Полная инструкция по port-forward:
 1. Backend API (основной сервис)
-   bash
+   в консоли(powershell, bash):
    kubectl port-forward service/pobeda-backend-service 8000:8000
    URL: http://localhost:8000
    Docs: http://localhost:8000/docs
 
 2. Frontend (веб-интерфейс)
-   bash
+   в консоли(powershell, bash):
    kubectl port-forward service/frontend 3000:80
    URL: http://localhost:3000
 
 3. Kafka UI (мониторинг Kafka)
-   bash
+   в консоли(powershell, bash):
    kubectl port-forward service/kafka-ui 8080:8080
    URL: http://localhost:8080
 
 4. Elasticsearch (логи и поиск)
-   bash
+   в консоли(powershell, bash):
    kubectl port-forward service/elasticsearch 9200:9200
    URL: http://localhost:9200
 
